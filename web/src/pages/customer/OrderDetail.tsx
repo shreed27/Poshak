@@ -22,6 +22,7 @@ import { api, fmtSlot, rupees, STATUS_FLOW, STATUS_LABEL, type Status } from '..
 import { useAction, useAsync } from '../../lib/useAsync'
 import { ErrorText, Loading, Badge } from '../../components/ui'
 import { PhotoStrip } from '../../components/Photos'
+import RepeatOrder from '../../components/RepeatOrder'
 import { ReorderButtons } from '../../components/Reorder'
 
 declare global {
@@ -286,6 +287,8 @@ export default function OrderDetail() {
         )}
         <ErrorText msg={pay.error} />
       </section>
+
+      {!cancelled && (o.order_items?.length ?? 0) > 0 && <RepeatOrder order={o} />}
 
       {/* Need this again? */}
       {(isDelivered || cancelled) && (

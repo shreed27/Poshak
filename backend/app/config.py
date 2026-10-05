@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     vapid_public_key: str = ""
     vapid_private_key: str = ""
     vapid_subject: str = "mailto:admin@example.com"
+    cron_secret: str = ""              # shared secret for /cron/* (Vercel sends it as a Bearer token)
     cors_origins: str = "http://localhost:5173"
 
     @property

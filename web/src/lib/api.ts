@@ -31,6 +31,11 @@ export interface Order {
   order_events?: OrderEvent[]
 }
 export interface Notification { id: string; title: string; body: string | null; read_at: string | null; created_at: string; order_id: string | null }
+export interface Recurring {
+  id: string; shop_id: string; address_id: string; items: { service_id: string; quantity: number }[]; payment_method: 'online' | 'cod'
+  frequency: 'weekly' | 'biweekly'; weekday: number; slot_start_hour: number; slot_end_hour: number
+  next_run_date: string; status: 'active' | 'paused' | 'cancelled'; last_error: string | null; shops?: { name: string }
+}
 export interface PartnerStatus { is_online: boolean; lat: number | null; lng: number | null; updated_at: string | null; assigned_now?: number }
 export interface Promo { code: string; description: string | null; kind: 'percent' | 'flat'; value: number; max_discount: number | null; min_order: number; first_order_only: boolean; usage_limit: number | null; per_user_limit: number; is_active: boolean; redemptions?: number }
 export interface Stats { orders: number; by_status: Record<string, number>; revenue: number; users_by_role: Record<string, number> }
@@ -112,6 +117,9 @@ export const api = {
   adminShops: () => request<Shop[]>('/admin/shops'),
   adminCreateShop: (s: unknown) => post<Shop>('/admin/shops', s),
   adminPatchShop: (id: string, s: unknown) => patch<Shop>(`/admin/shops/${id}`, s),
+  recurring: () => request<Recurring[]>('/recurring'),
+  createRecurring: (r: Omit<Partial<Recurring>, 'id'> & { first_pickup?: string }) => post<Recurring>('/recurring', r),
+  setRecurringStatus: (id: string, status: Recurring['status']) => patch<Recurring>(`/recurring/${id}`, { status }),
   validatePromo: (code: string, subtotal: number) => post<{ code: string; description: string | null; discount: number; total: number }>('/promos/validate', { code, subtotal }),
   adminPromos: () => request<Promo[]>('/admin/promos'),
   adminCreatePromo: (p: Partial<Promo>) => post<Promo>('/admin/promos', p),
@@ -144,3 +152,7 @@ export const STATUS_HERO: Record<Status, { emoji: string; title: string; sub: st
 }
 
 export const PAYMENT_LABEL: Record<string, string> = { pending: 'Payment pending', paid: 'Paid', refunded: 'Refunded', partially_refunded: 'Partly refunded' }
+
+export const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+export const SLOT_WINDOWS: [number, number][] = [[8, 10], [10, 12], [16, 18], [18, 20]]
+export const hourLabel = (h: number) => `${((h + 11) % 12) + 1}${h < 12 ? 'am' : 'pm'}`

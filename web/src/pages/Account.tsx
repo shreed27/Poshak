@@ -3,6 +3,7 @@ import { Phone, LogOut, Sparkles } from 'lucide-react'
 import { useAuth } from '../lib/AuthContext'
 import { DEMO } from '../lib/demo'
 import NotificationSettings from '../components/NotificationSettings'
+import RecurringOrders from '../components/RecurringOrders'
 
 export default function Account() {
   const { profile, signOut } = useAuth()
@@ -63,6 +64,8 @@ export default function Account() {
           </p>
         </div>
       )}
+
+      {profile?.role === 'customer' && <RecurringOrders />}
 
       <NotificationSettings />
 

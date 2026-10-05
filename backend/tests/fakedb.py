@@ -14,6 +14,7 @@ RELATIONS = {
     ("orders", "order_photos"): ("order_photos", "id", "order_id", True),
     ("order_items", "services"): ("services", "service_id", "id", False),
     ("shops", "services"): ("services", "id", "shop_id", True),
+    ("recurring_orders", "shops"): ("shops", "shop_id", "id", False),
 }
 _clock = itertools.count(1)
 

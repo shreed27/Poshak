@@ -15,6 +15,13 @@ const km = (a: number, b: number, c: number, d: number) => {
 }
 const FRESH_MS = 10 * 60 * 1000
 
+// India-time date helpers for repeat orders (dates are 'YYYY-MM-DD' strings)
+const istToday = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' })
+const addDays = (iso: string, n: number) => { const d = new Date(`${iso}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10) }
+const weekdayOf = (iso: string) => (new Date(`${iso}T00:00:00Z`).getUTCDay() + 6) % 7   // 0 = Monday
+const nextWeekday = (after: string, wd: number) => addDays(after, ((wd - weekdayOf(after) - 1 + 7) % 7) + 1)
+const slotIso = (iso: string, hour: number) => `${iso}T${String(hour).padStart(2, '0')}:00:00+05:30`
+
 const discountFor = (p: Rec, subtotal: number) => {
   const d = p.kind === 'percent' ? Math.min((subtotal * p.value) / 100, p.max_discount ?? Infinity) : p.value
   return Math.round(Math.max(0, Math.min(d, subtotal)) * 100) / 100
@@ -36,7 +43,7 @@ export const setDemoRole = (r: Role | null) => {
 export const resetDemo = () => { try { localStorage.removeItem(DB_KEY) } catch { /* ignore */ } }
 
 type Rec = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
-interface DB { prefs: Record<string, Rec>; partners: Record<string, Rec>; promos: Rec[]; shops: Rec[]; services: Rec[]; addresses: Rec[]; orders: Rec[]; events: Rec[]; notifications: Rec[]; seq: number }
+interface DB { recurring: Rec[]; prefs: Record<string, Rec>; partners: Record<string, Rec>; promos: Rec[]; shops: Rec[]; services: Rec[]; addresses: Rec[]; orders: Rec[]; events: Rec[]; notifications: Rec[]; seq: number }
 
 const sv = (id: string, shop_id: string, name: string, unit: 'kg' | 'piece', price: number, turnaround_hours: number): Rec =>
   ({ id, shop_id, name, unit, price, turnaround_hours, is_active: true })
@@ -46,6 +53,7 @@ function seed(): DB {
     ({ id, name, description, address: `${area}, Bengaluru`, city: 'Bengaluru', rating, is_active: true, owner_id, emoji, tint })
   return {
     seq: 100,
+    recurring: [],
     partners: {},
     prefs: {},
     promos: [
@@ -114,7 +122,7 @@ function seed(): DB {
 }
 
 function load(): DB {
-  try { const raw = localStorage.getItem(DB_KEY); if (raw) { const d = JSON.parse(raw); d.promos ??= seed().promos; d.partners ??= {}; d.prefs ??= {}; return d } } catch { /* ignore */ }
+  try { const raw = localStorage.getItem(DB_KEY); if (raw) { const d = JSON.parse(raw); d.promos ??= seed().promos; d.partners ??= {}; d.prefs ??= {}; d.recurring ??= []; return d } } catch { /* ignore */ }
   return seed()
 }
 const save = (db: DB) => { try { localStorage.setItem(DB_KEY, JSON.stringify(db)) } catch { /* ignore */ } }
@@ -187,6 +195,24 @@ export function demoRequest(method: string, path: string, body: Rec | undefined,
   if (path === '/addresses' && method === 'POST') { const a = { ...body, id: uid(), user_id: me.id }; db.addresses.push(a); return out(a) }
   if ((m = path.match(/^\/addresses\/([^/]+)$/)) && method === 'DELETE') { db.addresses = db.addresses.filter((a) => a.id !== m![1]); return out(undefined) }
 
+  const placeOrder = (b: Rec, customerId: string): Rec => {
+        const items = b.items.map((i: Rec) => ({ ...i, unit_price: find(db.services, i.service_id, 'Service').price }))
+    const gross = items.reduce((s: number, i: Rec) => s + i.unit_price * i.quantity, 0)
+    const applied = b.promo_code ? checkPromo(b.promo_code, gross) : null
+    const o: Rec = {
+      id: uid(), customer_id: customerId, partner_id: null, shop_id: b.shop_id, address_id: b.address_id, status: 'placed',
+      payment_method: b.payment_method, payment_status: 'pending', pickup_slot_start: b.pickup_slot_start, pickup_slot_end: b.pickup_slot_end,
+      estimated_amount: gross - (applied?.discount ?? 0), discount_amount: applied?.discount ?? 0, promo_code: applied?.promo.code ?? null, promo: applied?.promo ?? null, final_amount: null, weight_kg: null,
+      rating: null, review: null, created_at: now(), items,
+      refunded_amount: 0,
+      order_photos: ((b.photo_paths ?? []) as string[]).map((url) => ({ id: uid(), url })),
+    }
+    o.declined_by = []
+    db.orders.push(o); db.events.push({ id: uid(), order_id: o.id, status: 'placed', created_at: o.created_at })
+    note(customerId, 'Order placed', "We're finding a pickup partner.", o.id)
+    autoAssign(o)
+    return o
+  }
   const checkPromo = (code: string, subtotal: number): { promo: Rec; discount: number } => {
     const promo = db.promos.find((p) => p.code === code.trim().toUpperCase() && p.is_active) ?? fail('This promo code is not valid')
     if (subtotal < promo.min_order) fail(`Add items worth ₹${promo.min_order} or more to use this code`)
@@ -203,24 +229,44 @@ export function demoRequest(method: string, path: string, body: Rec | undefined,
   if (path === '/admin/promos' && method === 'POST') { const p = { ...body, code: String(body!.code).toUpperCase(), is_active: true }; if (db.promos.some((x) => x.code === p.code)) fail('That promo code already exists'); db.promos.push(p); return out(p) }
   if ((m = path.match(/^\/admin\/promos\/([^/]+)$/))) { const p = find(db.promos.map((x) => ({ ...x, id: x.code })), m[1].toUpperCase(), 'Promo'); Object.assign(db.promos.find((x) => x.code === p.id)!, body); return out(db.promos.find((x) => x.code === p.id)) }
 
-  if (path === '/orders' && method === 'POST') {
-    const b = body as Rec
-    const items = b.items.map((i: Rec) => ({ ...i, unit_price: find(db.services, i.service_id, 'Service').price }))
-    const gross = items.reduce((s: number, i: Rec) => s + i.unit_price * i.quantity, 0)
-    const applied = b.promo_code ? checkPromo(b.promo_code, gross) : null
-    const o: Rec = {
-      id: uid(), customer_id: me.id, partner_id: null, shop_id: b.shop_id, address_id: b.address_id, status: 'placed',
-      payment_method: b.payment_method, payment_status: 'pending', pickup_slot_start: b.pickup_slot_start, pickup_slot_end: b.pickup_slot_end,
-      estimated_amount: gross - (applied?.discount ?? 0), discount_amount: applied?.discount ?? 0, promo_code: applied?.promo.code ?? null, promo: applied?.promo ?? null, final_amount: null, weight_kg: null,
-      rating: null, review: null, created_at: now(), items,
-      refunded_amount: 0,
-      order_photos: ((b.photo_paths ?? []) as string[]).map((url) => ({ id: uid(), url })),
+  if (path === '/orders' && method === 'POST') return out(view(placeOrder(body as Rec, me.id)))
+  const runRecurring = () => {
+    const horizon = addDays(istToday(), 1)
+    for (const r of db.recurring.filter((x) => x.status === 'active' && x.customer_id === me.id && x.next_run_date <= horizon)) {
+      const pickup = r.next_run_date
+      r.next_run_date = addDays(pickup, r.frequency === 'biweekly' ? 14 : 7)
+      if (Date.parse(slotIso(pickup, r.slot_start_hour)) < Date.now() + 30 * 60 * 1000) { r.last_error = `Missed the pickup on ${pickup}`; continue }
+      try {
+        const o = placeOrder({ shop_id: r.shop_id, address_id: r.address_id, payment_method: r.payment_method, items: r.items, pickup_slot_start: new Date(slotIso(pickup, r.slot_start_hour)).toISOString(), pickup_slot_end: new Date(slotIso(pickup, r.slot_end_hour)).toISOString() }, r.customer_id)
+        r.last_order_id = o.id; r.last_error = null
+      } catch (e) {
+        r.status = 'paused'; r.last_error = (e as Error).message
+        note(r.customer_id, 'Your repeat order was paused', `We couldn't schedule it: ${r.last_error}`, null)
+      }
     }
-    o.declined_by = []
-    db.orders.push(o); db.events.push({ id: uid(), order_id: o.id, status: 'placed', created_at: o.created_at })
-    note(me.id, 'Order placed', "We're finding a pickup partner.", o.id)
-    autoAssign(o)
-    return out(view(o))
+  }
+  if (path === '/recurring' && method === 'GET') {
+    runRecurring()
+    return out(db.recurring.filter((r) => r.customer_id === me.id && r.status !== 'cancelled').map((r) => ({ ...r, shops: db.shops.find((s) => s.id === r.shop_id) })).reverse())
+  }
+  if (path === '/recurring' && method === 'POST') {
+    const b = body as Rec
+    if (!db.addresses.some((a) => a.id === b.address_id && a.user_id === me.id)) fail('Unknown address')
+    if (b.items.some((i: Rec) => !db.services.some((v) => v.id === i.service_id && v.shop_id === b.shop_id && v.is_active))) fail('Unknown service for this shop')
+    if (db.recurring.filter((r) => r.customer_id === me.id && r.status === 'active').length >= 5) fail('You can have up to 5 active repeat orders')
+    const today = istToday()
+    if (b.first_pickup && b.first_pickup <= today) fail('The first pickup must be after today')
+    const weekday = b.first_pickup ? weekdayOf(b.first_pickup) : b.weekday
+    const r = { id: uid(), customer_id: me.id, shop_id: b.shop_id, address_id: b.address_id, items: b.items, payment_method: b.payment_method, frequency: b.frequency ?? 'weekly', weekday,
+      slot_start_hour: b.slot_start_hour, slot_end_hour: b.slot_end_hour, next_run_date: b.first_pickup ?? nextWeekday(today, weekday), status: 'active', last_order_id: null, last_error: null, created_at: now() }
+    db.recurring.push(r); return out(r)
+  }
+  if ((m = path.match(/^\/recurring\/([^/]+)$/))) {
+    const r = db.recurring.find((x) => x.id === m![1] && x.customer_id === me.id) ?? fail('Repeat order not found')
+    if (r.status === 'cancelled') fail("A cancelled repeat order can't be changed")
+    r.status = body!.status
+    if (r.status === 'active') { r.last_error = null; if (r.next_run_date <= istToday()) r.next_run_date = nextWeekday(istToday(), r.weekday) }
+    return out(r)
   }
   if (path === '/orders') return db.orders.filter((o) => o.customer_id === me.id).map(view).reverse()
   if ((m = path.match(/^\/orders\/([^/]+)$/))) return view(find(db.orders, m[1], 'Order'))
