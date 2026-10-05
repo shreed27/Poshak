@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     supabase_jwt_secret: str = ""
     razorpay_key_id: str = ""
     razorpay_key_secret: str = ""
+    razorpay_webhook_secret: str = ""
     cors_origins: str = "http://localhost:5173"
 
     @property

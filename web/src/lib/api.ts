@@ -17,7 +17,7 @@ export interface OrderEvent { id: string; status: Status; created_at: string }
 export interface Order {
   id: string; status: Status; created_at: string
   estimated_amount: number; final_amount: number | null; weight_kg: number | null
-  payment_method: 'online' | 'cod'; payment_status: string
+  payment_method: 'online' | 'cod'; payment_status: string; refunded_amount?: number
   pickup_slot_start: string; pickup_slot_end: string
   rating: number | null; review: string | null
   customer_id: string; partner_id: string | null; shop_id: string; address_id: string
@@ -99,6 +99,7 @@ export const api = {
   adminShops: () => request<Shop[]>('/admin/shops'),
   adminCreateShop: (s: unknown) => post<Shop>('/admin/shops', s),
   adminPatchShop: (id: string, s: unknown) => patch<Shop>(`/admin/shops/${id}`, s),
+  adminRefund: (orderId: string, amount: number | null, reason: string) => post(`/admin/orders/${orderId}/refund`, { amount, reason: reason || null }),
   adminAssign: (orderId: string, partner_id: string) => post<Order>(`/admin/orders/${orderId}/assign`, { partner_id }),
 }
 
@@ -124,3 +125,5 @@ export const STATUS_HERO: Record<Status, { emoji: string; title: string; sub: st
   delivered: { emoji: '🎉', title: 'Delivered', sub: 'Enjoy your fresh clothes!' },
   cancelled: { emoji: '✖️', title: 'Order cancelled', sub: 'This order was cancelled' },
 }
+
+export const PAYMENT_LABEL: Record<string, string> = { pending: 'Payment pending', paid: 'Paid', refunded: 'Refunded', partially_refunded: 'Partly refunded' }

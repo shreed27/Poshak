@@ -20,3 +20,22 @@ def create_order(key_id: str, key_secret: str, amount_rupees: float, receipt: st
     )
     res.raise_for_status()
     return res.json()
+
+
+def verify_webhook_signature(secret: str, raw_body: bytes, signature: str) -> bool:
+    """Razorpay signs the *raw* request body with the webhook secret (HMAC-SHA256, hex)."""
+    if not secret or not signature:
+        return False
+    expected = hmac.new(secret.encode(), raw_body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, signature)
+
+
+def create_refund(key_id: str, key_secret: str, payment_id: str, amount_rupees: float, receipt: str) -> dict:
+    res = httpx.post(
+        f"{API}/payments/{payment_id}/refund",
+        auth=(key_id, key_secret),
+        json={"amount": round(amount_rupees * 100), "receipt": receipt},
+        timeout=15,
+    )
+    res.raise_for_status()
+    return res.json()

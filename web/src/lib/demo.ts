@@ -159,6 +159,7 @@ export function demoRequest(method: string, path: string, body: Rec | undefined,
       payment_method: b.payment_method, payment_status: 'pending', pickup_slot_start: b.pickup_slot_start, pickup_slot_end: b.pickup_slot_end,
       estimated_amount: items.reduce((s: number, i: Rec) => s + i.unit_price * i.quantity, 0), final_amount: null, weight_kg: null,
       rating: null, review: null, created_at: now(), items,
+      refunded_amount: 0,
       order_photos: ((b.photo_paths ?? []) as string[]).map((url) => ({ id: uid(), url })),
     }
     db.orders.push(o); db.events.push({ id: uid(), order_id: o.id, status: 'placed', created_at: o.created_at })
@@ -207,6 +208,17 @@ export function demoRequest(method: string, path: string, body: Rec | undefined,
   if (path === '/admin/shops' && method === 'GET') return db.shops
   if (path === '/admin/shops' && method === 'POST') { const s = { ...body, id: uid(), is_active: true, rating: null, emoji: '🧺', tint: 'orange' }; db.shops.push(s); return out(s) }
   if ((m = path.match(/^\/admin\/shops\/([^/]+)$/))) { const s = find(db.shops, m[1], 'Shop'); Object.assign(s, body); return out(s) }
+  if ((m = path.match(/^\/admin\/orders\/([^/]+)\/refund$/))) {
+    const o = find(db.orders, m[1], 'Order')
+    if (!['paid', 'partially_refunded'].includes(o.payment_status)) fail('Only paid orders can be refunded')
+    const total = Number(o.final_amount ?? o.estimated_amount), left = total - Number(o.refunded_amount ?? 0)
+    const amt = body!.amount == null ? left : Number(body!.amount)
+    if (amt <= 0 || amt > left) fail(`Refund exceeds the remaining balance of ₹${left}`)
+    o.refunded_amount = Number(o.refunded_amount ?? 0) + amt
+    o.payment_status = o.refunded_amount >= total ? 'refunded' : 'partially_refunded'
+    note(o.customer_id, 'Refund initiated', `₹${amt} will be returned to you.`, o.id)
+    return out({ id: uid(), order_id: o.id, amount: amt, status: 'manual' })
+  }
   if ((m = path.match(/^\/admin\/orders\/([^/]+)\/assign$/))) { const o = find(db.orders, m[1], 'Order'); o.partner_id = body!.partner_id; return out(move(o, 'pickup_assigned')) }
   if (path.match(/^\/admin\/users\/[^/]+\/role$/)) return profiles()[0]
 

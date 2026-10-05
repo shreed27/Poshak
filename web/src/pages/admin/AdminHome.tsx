@@ -7,11 +7,31 @@ import {
   Users,
   Plus
 } from 'lucide-react'
-import { api, rupees, type Role } from '../../lib/api'
+import { api, rupees, type Order, type Role } from '../../lib/api'
 import { useAction, useAsync } from '../../lib/useAsync'
 import { Badge, ErrorText, Loading } from '../../components/ui'
 
 const ROLES: Role[] = ['customer', 'partner', 'shop', 'admin']
+
+function RefundForm({ order, onDone }: { order: Order; onDone: () => void }) {
+  const [open, setOpen] = useState(false)
+  const [amount, setAmount] = useState('')
+  const [reason, setReason] = useState('')
+  const act = useAction(() => { setOpen(false); setAmount(''); setReason(''); onDone() })
+  const left = Number(order.final_amount ?? order.estimated_amount) - Number(order.refunded_amount ?? 0)
+  if (!['paid', 'partially_refunded'].includes(order.payment_status) || left <= 0) return null
+  return open ? (
+    <div className="card form" style={{ width: '100%', margin: '.5rem 0 0' }}>
+      <input type="number" min="1" max={left} step="0.01" placeholder={`Amount (blank = full ₹${left})`} value={amount} onChange={(e) => setAmount(e.target.value)} />
+      <input placeholder="Reason (e.g. damaged shirt)" value={reason} onChange={(e) => setReason(e.target.value)} maxLength={300} />
+      <div className="inline">
+        <button className="primary" disabled={act.busy} onClick={() => act.run(() => api.adminRefund(order.id, amount ? Number(amount) : null, reason))}>Issue refund</button>
+        <button onClick={() => setOpen(false)}>Cancel</button>
+      </div>
+      <ErrorText msg={act.error} />
+    </div>
+  ) : <button onClick={() => setOpen(true)}>Refund</button>
+}
 
 export default function AdminHome() {
   const stats = useAsync(api.adminStats)
@@ -20,12 +40,13 @@ export default function AdminHome() {
   const shops = useAsync(api.adminShops)
   const [shop, setShop] = useState({ name: '', city: 'Bengaluru', address: '', owner_id: '' })
   const [showAddShop, setShowAddShop] = useState(false)
-  const mut = useAction(() => {
+  const refresh = () => {
     stats.reload()
     users.reload()
     shops.reload()
     orders.reload()
-  })
+  }
+  const mut = useAction(refresh)
   const partners = users.data?.filter((u) => u.role === 'partner') ?? []
 
   return (
@@ -98,6 +119,7 @@ export default function AdminHome() {
 
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', flexWrap: 'wrap' }}>
                 <Badge status={o.status} />
+                <RefundForm order={o} onDone={refresh} />
                 {o.status === 'placed' && partners.length > 0 && (
                   <select
                     defaultValue=""

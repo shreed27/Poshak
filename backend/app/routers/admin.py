@@ -1,10 +1,17 @@
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from decimal import Decimal
 from typing import Literal
+
+import httpx
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 from supabase import Client
 
 from app.auth import CurrentUser, require_role
+from app.config import Settings, get_settings
 from app.db import get_db
+from app.services import razorpay
+from app.services.notify import notify
+from app.services.refunds import plan_refund
 from app.services.orders import apply_status, get_order_or_404
 from app.schemas.orders import OrderStatus
 
@@ -103,3 +110,50 @@ def assign_partner(order_id: str, body: AssignIn, user: CurrentUser = Depends(ad
     db.table("orders").update({"partner_id": body.partner_id}).eq("id", order_id).execute()
     order["partner_id"] = body.partner_id
     return apply_status(db, order, OrderStatus.PICKUP_ASSIGNED, user.id)
+
+
+class RefundIn(BaseModel):
+    amount: Decimal | None = Field(default=None, gt=0, description="Defaults to the full remaining balance")
+    reason: str | None = Field(default=None, max_length=300)
+
+
+@router.post("/orders/{order_id}/refund", status_code=201)
+def refund_order(
+    order_id: str,
+    body: RefundIn,
+    user: CurrentUser = Depends(admin_only),
+    db: Client = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    order = get_order_or_404(db, order_id)
+    if order["payment_status"] not in ("paid", "partially_refunded"):
+        raise HTTPException(409, "Only paid orders can be refunded")
+    try:
+        amount, new_status = plan_refund(order["final_amount"] or order["estimated_amount"], order["refunded_amount"], body.amount)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+
+    # Claim the refund first (conditional on the balance we read) so two admins can't double-refund.
+    claimed = (
+        db.table("orders").update({"refunded_amount": float(Decimal(str(order["refunded_amount"])) + amount), "payment_status": new_status})
+        .eq("id", order_id).eq("refunded_amount", order["refunded_amount"]).execute().data
+    )
+    if not claimed:
+        raise HTTPException(409, "The order was refunded by someone else, refresh and retry")
+
+    row = {"order_id": order_id, "amount": float(amount), "reason": body.reason, "created_by": user.id, "status": "manual"}
+    if order["payment_method"] == "online":
+        pay = db.table("payments").select("*").eq("order_id", order_id).eq("status", "paid").execute().data
+        try:
+            if not pay or not pay[0].get("razorpay_payment_id"):
+                raise HTTPException(409, "No captured online payment found for this order")
+            rp = razorpay.create_refund(settings.razorpay_key_id, settings.razorpay_key_secret, pay[0]["razorpay_payment_id"], float(amount), order_id[:40])
+            row.update({"payment_id": pay[0]["id"], "razorpay_refund_id": rp["id"], "status": "pending"})
+        except (HTTPException, httpx.HTTPError) as e:
+            db.table("orders").update({"refunded_amount": order["refunded_amount"], "payment_status": order["payment_status"]}).eq("id", order_id).execute()  # undo the claim
+            if isinstance(e, HTTPException):
+                raise
+            raise HTTPException(502, "Payment provider error, the refund was not issued")
+    refund = db.table("refunds").insert(row).execute().data[0]
+    notify(db, order["customer_id"], "Refund initiated", f"\u20b9{amount} will be returned to you.", order_id)
+    return refund
