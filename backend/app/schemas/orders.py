@@ -48,6 +48,7 @@ class OrderCreate(BaseModel):
     items: list[OrderItemIn] = Field(min_length=1)
     payment_method: Literal["online", "cod"] = "cod"
     photo_paths: list[str] = Field(default_factory=list, max_length=6)
+    promo_code: str | None = Field(default=None, max_length=40)
 
 
 class StatusUpdate(BaseModel):
@@ -61,3 +62,8 @@ class WeighIn(BaseModel):
 class RatingIn(BaseModel):
     rating: int = Field(ge=1, le=5)
     review: str | None = Field(default=None, max_length=500)
+
+
+class PromoCheck(BaseModel):
+    code: str = Field(max_length=40)
+    subtotal: float = Field(gt=0)

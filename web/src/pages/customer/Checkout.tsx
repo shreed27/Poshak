@@ -10,7 +10,8 @@ import {
   Home,
   Info,
   ArrowRight,
-  ShoppingBag
+  ShoppingBag,
+  Tag
 } from 'lucide-react'
 import { api, rupees, type Address } from '../../lib/api'
 import { useAction, useAsync } from '../../lib/useAsync'
@@ -82,6 +83,9 @@ export default function Checkout() {
   const [selectedDay, setSelectedDay] = useState(0)
   const [method, setMethod] = useState<'cod' | 'online'>(state?.method ?? 'cod')
   const [photos, setPhotos] = useState<Pending[]>([])
+  const [promoInput, setPromoInput] = useState('')
+  const [promo, setPromo] = useState<{ code: string; description: string | null; discount: number } | null>(null)
+  const applyPromo = useAction()
   const [showAddressForm, setShowAddressForm] = useState(false)
   const [form, setForm] = useState(blank)
   const slots = useMemo(() => slotOptions(), [])
@@ -94,7 +98,8 @@ export default function Checkout() {
 
   if (!state?.items?.length) return <Navigate to="/" replace />
 
-  const total = state.items.reduce((s, i) => s + i.price * i.quantity, 0)
+  const subtotal = state.items.reduce((s, i) => s + i.price * i.quantity, 0)
+  const total = subtotal - (promo?.discount ?? 0)
   const selected = addrs.data?.some((a) => a.id === addressId)
     ? addressId
     : addrs.data?.[0]?.id || ''
@@ -117,6 +122,7 @@ export default function Checkout() {
         address_id: selected,
         payment_method: method,
         photo_paths,
+        promo_code: promo?.code ?? null,
         pickup_slot_start: slot.start.toISOString(),
         pickup_slot_end: slot.end.toISOString(),
         items: state.items.map((i) => ({ service_id: i.service_id, quantity: i.quantity }))
@@ -149,6 +155,13 @@ export default function Checkout() {
           </div>
         ))}
 
+        {promo && (
+          <div className="bill-row" style={{ color: 'var(--green-dark)' }}>
+            <span>Promo {promo.code}</span>
+            <span style={{ fontWeight: 700 }}>− {rupees(promo.discount)}</span>
+          </div>
+        )}
+
         <div className="bill-row" style={{ color: 'var(--green-dark)' }}>
           <span>Doorstep Pickup &amp; Delivery</span>
           <span style={{ fontWeight: 700 }}>FREE</span>
@@ -163,6 +176,44 @@ export default function Checkout() {
           <Info size={16} color="var(--brand)" style={{ flexShrink: 0, marginTop: 2 }} />
           <span>Weight-based services are measured accurately on digital scale at pickup before washing.</span>
         </div>
+      </section>
+
+      {/* Promo code */}
+      <section className="card">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.6rem' }}>
+          <Tag size={16} color="var(--brand)" />
+          <h3 style={{ margin: 0 }}>Offers</h3>
+        </div>
+        {promo ? (
+          <div className="row">
+            <div>
+              <strong>{promo.code} applied</strong>
+              <div className="muted">{promo.description ?? `You save ${rupees(promo.discount)}`}</div>
+            </div>
+            <button type="button" onClick={() => { setPromo(null); setPromoInput('') }}>Remove</button>
+          </div>
+        ) : (
+          <>
+            <div className="inline" style={{ width: '100%' }}>
+              <input
+                style={{ flex: 1, textTransform: 'uppercase' }}
+                placeholder="Have a promo code?"
+                value={promoInput}
+                maxLength={40}
+                onChange={(e) => setPromoInput(e.target.value)}
+              />
+              <button
+                type="button"
+                className="primary"
+                disabled={applyPromo.busy || !promoInput.trim()}
+                onClick={() => applyPromo.run(async () => setPromo(await api.validatePromo(promoInput.trim(), subtotal)))}
+              >
+                Apply
+              </button>
+            </div>
+            <ErrorText msg={applyPromo.error} />
+          </>
+        )}
       </section>
 
       {/* 1. Pickup Address */}

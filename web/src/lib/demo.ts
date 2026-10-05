@@ -8,6 +8,11 @@ export const DEMO = import.meta.env.VITE_DEMO === 'true' || !url || url.includes
 const ROLE_KEY = 'poshak-demo-role'
 const DB_KEY = 'poshak-demo-db-v1'
 
+const discountFor = (p: Rec, subtotal: number) => {
+  const d = p.kind === 'percent' ? Math.min((subtotal * p.value) / 100, p.max_discount ?? Infinity) : p.value
+  return Math.round(Math.max(0, Math.min(d, subtotal)) * 100) / 100
+}
+
 export const DEMO_USERS: Record<Role, { id: string; full_name: string; phone: string }> = {
   customer: { id: 'c1', full_name: 'Aarav Sharma', phone: '+919876500001' },
   partner: { id: 'p1', full_name: 'Ravi Kumar', phone: '+919876500002' },
@@ -24,7 +29,7 @@ export const setDemoRole = (r: Role | null) => {
 export const resetDemo = () => { try { localStorage.removeItem(DB_KEY) } catch { /* ignore */ } }
 
 type Rec = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
-interface DB { shops: Rec[]; services: Rec[]; addresses: Rec[]; orders: Rec[]; events: Rec[]; notifications: Rec[]; seq: number }
+interface DB { promos: Rec[]; shops: Rec[]; services: Rec[]; addresses: Rec[]; orders: Rec[]; events: Rec[]; notifications: Rec[]; seq: number }
 
 const sv = (id: string, shop_id: string, name: string, unit: 'kg' | 'piece', price: number, turnaround_hours: number): Rec =>
   ({ id, shop_id, name, unit, price, turnaround_hours, is_active: true })
@@ -34,6 +39,10 @@ function seed(): DB {
     ({ id, name, description, address: `${area}, Bengaluru`, city: 'Bengaluru', rating, is_active: true, owner_id, emoji, tint })
   return {
     seq: 100,
+    promos: [
+      { code: 'WELCOME20', description: '20% off your first order (up to ₹100)', kind: 'percent', value: 20, max_discount: 100, min_order: 100, first_order_only: true, usage_limit: null, per_user_limit: 1, is_active: true },
+      { code: 'FLAT50', description: '₹50 off orders above ₹300', kind: 'flat', value: 50, max_discount: null, min_order: 300, first_order_only: false, usage_limit: null, per_user_limit: 5, is_active: true },
+    ],
     shops: [
       shop('sh1', 'Fresh Fold Laundry', 'Everyday wash, fold & iron', 'Indiranagar', 4.6, '🧺', 'orange', 's1'),
       shop('sh2', 'Sparkle Dry Cleaners', 'Premium dry cleaning & garment care', 'Koramangala', 4.4, '👔', 'blue'),
@@ -96,7 +105,7 @@ function seed(): DB {
 }
 
 function load(): DB {
-  try { const raw = localStorage.getItem(DB_KEY); if (raw) return JSON.parse(raw) } catch { /* ignore */ }
+  try { const raw = localStorage.getItem(DB_KEY); if (raw) { const d = JSON.parse(raw); d.promos ??= seed().promos; return d } } catch { /* ignore */ }
   return seed()
 }
 const save = (db: DB) => { try { localStorage.setItem(DB_KEY, JSON.stringify(db)) } catch { /* ignore */ } }
@@ -151,13 +160,31 @@ export function demoRequest(method: string, path: string, body: Rec | undefined,
   if (path === '/addresses' && method === 'POST') { const a = { ...body, id: uid(), user_id: me.id }; db.addresses.push(a); return out(a) }
   if ((m = path.match(/^\/addresses\/([^/]+)$/)) && method === 'DELETE') { db.addresses = db.addresses.filter((a) => a.id !== m![1]); return out(undefined) }
 
+  const checkPromo = (code: string, subtotal: number): { promo: Rec; discount: number } => {
+    const promo = db.promos.find((p) => p.code === code.trim().toUpperCase() && p.is_active) ?? fail('This promo code is not valid')
+    if (subtotal < promo.min_order) fail(`Add items worth ₹${promo.min_order} or more to use this code`)
+    const mine = db.orders.filter((o) => o.customer_id === me.id && o.status !== 'cancelled')
+    if (mine.filter((o) => o.promo_code === promo.code).length >= promo.per_user_limit) fail('You have already used this promo code')
+    if (promo.first_order_only && mine.length > 0) fail('This promo code is only for your first order')
+    return { promo, discount: discountFor(promo, subtotal) }
+  }
+  if (path === '/promos/validate') {
+    const { promo, discount } = checkPromo(body!.code, Number(body!.subtotal))
+    return { code: promo.code, description: promo.description, discount, total: Number(body!.subtotal) - discount }
+  }
+  if (path === '/admin/promos' && method === 'GET') return db.promos.map((p) => ({ ...p, redemptions: db.orders.filter((o) => o.promo_code === p.code && o.status !== 'cancelled').length }))
+  if (path === '/admin/promos' && method === 'POST') { const p = { ...body, code: String(body!.code).toUpperCase(), is_active: true }; if (db.promos.some((x) => x.code === p.code)) fail('That promo code already exists'); db.promos.push(p); return out(p) }
+  if ((m = path.match(/^\/admin\/promos\/([^/]+)$/))) { const p = find(db.promos.map((x) => ({ ...x, id: x.code })), m[1].toUpperCase(), 'Promo'); Object.assign(db.promos.find((x) => x.code === p.id)!, body); return out(db.promos.find((x) => x.code === p.id)) }
+
   if (path === '/orders' && method === 'POST') {
     const b = body as Rec
     const items = b.items.map((i: Rec) => ({ ...i, unit_price: find(db.services, i.service_id, 'Service').price }))
+    const gross = items.reduce((s: number, i: Rec) => s + i.unit_price * i.quantity, 0)
+    const applied = b.promo_code ? checkPromo(b.promo_code, gross) : null
     const o: Rec = {
       id: uid(), customer_id: me.id, partner_id: null, shop_id: b.shop_id, address_id: b.address_id, status: 'placed',
       payment_method: b.payment_method, payment_status: 'pending', pickup_slot_start: b.pickup_slot_start, pickup_slot_end: b.pickup_slot_end,
-      estimated_amount: items.reduce((s: number, i: Rec) => s + i.unit_price * i.quantity, 0), final_amount: null, weight_kg: null,
+      estimated_amount: gross - (applied?.discount ?? 0), discount_amount: applied?.discount ?? 0, promo_code: applied?.promo.code ?? null, promo: applied?.promo ?? null, final_amount: null, weight_kg: null,
       rating: null, review: null, created_at: now(), items,
       refunded_amount: 0,
       order_photos: ((b.photo_paths ?? []) as string[]).map((url) => ({ id: uid(), url })),
@@ -187,8 +214,9 @@ export function demoRequest(method: string, path: string, body: Rec | undefined,
   if ((m = path.match(/^\/partner\/orders\/([^/]+)\/weigh$/))) {
     const o = find(db.orders, m[1], 'Order'); if (o.status !== 'picked_up') fail('Mark the order as picked up before weighing')
     const kg = Number(body!.weight_kg)
-    const final = o.items.reduce((s: number, i: Rec) => { const unit = find(db.services, i.service_id, 'Service').unit; return s + i.unit_price * (unit === 'kg' ? kg : i.quantity) }, 0)
-    return out(move(o, 'weighed', { weight_kg: kg, final_amount: Math.round(final * 100) / 100 }))
+    const gross = o.items.reduce((s: number, i: Rec) => { const unit = find(db.services, i.service_id, 'Service').unit; return s + i.unit_price * (unit === 'kg' ? kg : i.quantity) }, 0)
+    const discount = o.promo ? discountFor(o.promo, gross) : 0
+    return out(move(o, 'weighed', { weight_kg: kg, final_amount: Math.round((gross - discount) * 100) / 100, discount_amount: discount }))
   }
   if ((m = path.match(/^\/(partner|shop)\/orders\/([^/]+)\/status$/))) return out(move(find(db.orders, m[2], 'Order'), body!.status))
 

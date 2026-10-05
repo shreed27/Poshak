@@ -133,6 +133,7 @@ class FakeDB:
             "services": {"is_active": True},
             "shops": {"is_active": True},
             "notifications": {"read_at": None},
+            "promo_codes": {"is_active": True},
         }
 
     def table(self, name): return Query(self, name)

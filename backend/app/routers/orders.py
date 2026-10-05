@@ -10,6 +10,7 @@ from app.services.notify import notify
 from app.services.orders import apply_status, get_order_or_404
 from app.services.photos import attach_photo_urls, validate_photo_paths
 from app.services.pricing import estimate
+from app.services.promos import validate_promo
 
 router = APIRouter(prefix="/orders", tags=["orders"])
 
@@ -32,13 +33,20 @@ def create_order(body: OrderCreate, user: CurrentUser = Depends(get_current_user
         raise HTTPException(422, "Unknown service for this shop")
 
     lines = [{"unit_price": prices[i.service_id], "quantity": i.quantity} for i in body.items]
+    subtotal = estimate(lines)
+    promo, discount = (validate_promo(db, body.promo_code, user.id, subtotal) if body.promo_code else (None, 0))
     order = db.table("orders").insert({
         "customer_id": user.id,
         "shop_id": body.shop_id,
         "address_id": body.address_id,
         "pickup_slot_start": body.pickup_slot_start.isoformat(),
         "pickup_slot_end": body.pickup_slot_end.isoformat(),
-        "estimated_amount": float(estimate(lines)),
+        "estimated_amount": float(subtotal - discount),  # what the customer expects to pay
+        "discount_amount": float(discount),
+        "promo_code": promo["code"] if promo else None,
+        "promo_kind": promo["kind"] if promo else None,
+        "promo_value": promo["value"] if promo else None,
+        "promo_max_discount": promo["max_discount"] if promo else None,
         "payment_method": body.payment_method,
         "status": OrderStatus.PLACED.value,
     }).execute().data[0]

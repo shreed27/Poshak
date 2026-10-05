@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import { api, rupees, type Order, type Role } from '../../lib/api'
 import { useAction, useAsync } from '../../lib/useAsync'
+import PromosAdmin from '../../components/PromosAdmin'
 import { Badge, ErrorText, Loading } from '../../components/ui'
 
 const ROLES: Role[] = ['customer', 'partner', 'shop', 'admin']
@@ -201,6 +202,8 @@ export default function AdminHome() {
           </button>
         </div>
       )}
+
+      <PromosAdmin />
 
       {/* Users Role Governance */}
       <h2 style={{ fontSize: '1.25rem', marginTop: '2rem', marginBottom: '0.85rem' }}>User Profiles &amp; Roles</h2>

@@ -157,3 +157,54 @@ def refund_order(
     refund = db.table("refunds").insert(row).execute().data[0]
     notify(db, order["customer_id"], "Refund initiated", f"\u20b9{amount} will be returned to you.", order_id)
     return refund
+
+
+class PromoIn(BaseModel):
+    code: str = Field(min_length=3, max_length=40, pattern=r"^[A-Za-z0-9_-]+$")
+    description: str | None = Field(default=None, max_length=200)
+    kind: Literal["percent", "flat"]
+    value: Decimal = Field(gt=0)
+    max_discount: Decimal | None = Field(default=None, gt=0)
+    min_order: Decimal = Field(default=Decimal(0), ge=0)
+    first_order_only: bool = False
+    usage_limit: int | None = Field(default=None, ge=1)
+    per_user_limit: int = Field(default=1, ge=1)
+    starts_at: str | None = None
+    ends_at: str | None = None
+
+
+class PromoPatch(BaseModel):
+    is_active: bool | None = None
+    description: str | None = Field(default=None, max_length=200)
+    usage_limit: int | None = Field(default=None, ge=1)
+    ends_at: str | None = None
+
+
+@router.get("/promos")
+def list_promos(user: CurrentUser = Depends(admin_only), db: Client = Depends(get_db)):
+    promos = db.table("promo_codes").select("*").order("created_at", desc=True).execute().data
+    used = db.table("orders").select("promo_code").not_.is_("promo_code", "null").neq("status", "cancelled").execute().data
+    for p in promos:
+        p["redemptions"] = sum(1 for o in used if o["promo_code"] == p["code"])
+    return promos
+
+
+@router.post("/promos", status_code=201)
+def create_promo(body: PromoIn, user: CurrentUser = Depends(admin_only), db: Client = Depends(get_db)):
+    if body.kind == "percent" and body.value > 100:
+        raise HTTPException(422, "A percent promo cannot exceed 100")
+    code = body.code.upper()
+    if db.table("promo_codes").select("code").eq("code", code).execute().data:
+        raise HTTPException(409, "That promo code already exists")
+    return db.table("promo_codes").insert({**body.model_dump(mode="json"), "code": code}).execute().data[0]
+
+
+@router.patch("/promos/{code}")
+def patch_promo(code: str, body: PromoPatch, user: CurrentUser = Depends(admin_only), db: Client = Depends(get_db)):
+    changes = body.model_dump(exclude_none=True)
+    if not changes:
+        raise HTTPException(422, "Nothing to update")
+    rows = db.table("promo_codes").update(changes).eq("code", code.upper()).execute().data
+    if not rows:
+        raise HTTPException(404, "Promo not found")
+    return rows[0]

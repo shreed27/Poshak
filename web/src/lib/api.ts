@@ -17,7 +17,7 @@ export interface OrderEvent { id: string; status: Status; created_at: string }
 export interface Order {
   id: string; status: Status; created_at: string
   estimated_amount: number; final_amount: number | null; weight_kg: number | null
-  payment_method: 'online' | 'cod'; payment_status: string; refunded_amount?: number
+  payment_method: 'online' | 'cod'; payment_status: string; refunded_amount?: number; discount_amount?: number; promo_code?: string | null
   pickup_slot_start: string; pickup_slot_end: string
   rating: number | null; review: string | null
   customer_id: string; partner_id: string | null; shop_id: string; address_id: string
@@ -28,6 +28,7 @@ export interface Order {
   order_events?: OrderEvent[]
 }
 export interface Notification { id: string; title: string; body: string | null; read_at: string | null; created_at: string; order_id: string | null }
+export interface Promo { code: string; description: string | null; kind: 'percent' | 'flat'; value: number; max_discount: number | null; min_order: number; first_order_only: boolean; usage_limit: number | null; per_user_limit: number; is_active: boolean; redemptions?: number }
 export interface Stats { orders: number; by_status: Record<string, number>; revenue: number; users_by_role: Record<string, number> }
 
 async function request<T>(path: string, init: RequestInit & { json?: unknown } = {}): Promise<T> {
@@ -99,6 +100,10 @@ export const api = {
   adminShops: () => request<Shop[]>('/admin/shops'),
   adminCreateShop: (s: unknown) => post<Shop>('/admin/shops', s),
   adminPatchShop: (id: string, s: unknown) => patch<Shop>(`/admin/shops/${id}`, s),
+  validatePromo: (code: string, subtotal: number) => post<{ code: string; description: string | null; discount: number; total: number }>('/promos/validate', { code, subtotal }),
+  adminPromos: () => request<Promo[]>('/admin/promos'),
+  adminCreatePromo: (p: Partial<Promo>) => post<Promo>('/admin/promos', p),
+  adminPatchPromo: (code: string, p: Partial<Promo>) => patch<Promo>(`/admin/promos/${code}`, p),
   adminRefund: (orderId: string, amount: number | null, reason: string) => post(`/admin/orders/${orderId}/refund`, { amount, reason: reason || null }),
   adminAssign: (orderId: string, partner_id: string) => post<Order>(`/admin/orders/${orderId}/assign`, { partner_id }),
 }

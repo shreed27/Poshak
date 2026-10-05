@@ -9,6 +9,7 @@ from app.services.notify import notify, notify_status
 from app.services.orders import apply_status, get_order_or_404
 from app.services.photos import attach_photo_urls
 from app.services.pricing import final_amount
+from app.services.promos import compute_discount
 
 router = APIRouter(prefix="/partner", tags=["partner"])
 partner_only = require_role("partner", "admin")
@@ -64,8 +65,11 @@ def weigh(order_id: str, body: WeighIn, user: CurrentUser = Depends(partner_only
         raise HTTPException(409, "Mark the order as picked up before weighing")
     lines = db.table("order_items").select("quantity, unit_price, services(unit)").eq("order_id", order_id).execute().data
     flat = [{"quantity": l["quantity"], "unit_price": l["unit_price"], "unit": l["services"]["unit"]} for l in lines]
-    amount = float(final_amount(flat, body.weight_kg))
-    return apply_status(db, order, OrderStatus.WEIGHED, user.id, {"weight_kg": body.weight_kg, "final_amount": amount})
+    gross = final_amount(flat, body.weight_kg)
+    discount = compute_discount(order["promo_kind"], order["promo_value"], order["promo_max_discount"], gross) if order.get("promo_code") else 0
+    return apply_status(db, order, OrderStatus.WEIGHED, user.id, {
+        "weight_kg": body.weight_kg, "final_amount": float(gross - discount), "discount_amount": float(discount),
+    })
 
 
 @router.post("/orders/{order_id}/status")

@@ -8,3 +8,8 @@ union all
 select id, 'Iron', 'piece', 12, 24 from shops where name = 'Fresh Fold Laundry'
 union all
 select id, 'Dry Clean (Shirt)', 'piece', 120, 72 from shops where name = 'Sparkle Dry Cleaners';
+
+insert into promo_codes (code, description, kind, value, max_discount, min_order, first_order_only) values
+  ('WELCOME20', '20% off your first order (up to ₹100)', 'percent', 20, 100, 100, true),
+  ('FLAT50', '₹50 off orders above ₹300', 'flat', 50, null, 300, false)
+on conflict (code) do nothing;
