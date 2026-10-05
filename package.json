@@ -1,0 +1,16 @@
+{
+  "name": "poshak",
+  "private": true,
+  "scripts": {
+    "setup": "bash scripts/setup.sh",
+    "predev": "bash scripts/setup.sh",
+    "dev": "concurrently -k -n api,web -c blue,green \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:api": "cd backend && .venv/bin/uvicorn app.main:app --reload --host 0.0.0.0 --port 8100",
+    "dev:web": "npm --prefix web run dev",
+    "test": "cd backend && .venv/bin/python -m pytest -q",
+    "build": "npm --prefix web run build"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0"
+  }
+}
