@@ -66,7 +66,7 @@ export default function Orders() {
           <Empty
             icon={Receipt}
             action={
-              <Link to="/" className="primary" style={{ display: 'inline-flex', padding: '0.65rem 1.25rem', borderRadius: 'var(--radius-md)', color: '#fff', fontWeight: 700 }}>
+              <Link to="/" style={{ display: 'inline-flex', padding: '0.65rem 1.25rem', borderRadius: 'var(--radius-md)', background: 'var(--brand)', color: '#fff', fontWeight: 700 }}>
                 Explore Laundries
               </Link>
             }

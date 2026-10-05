@@ -18,7 +18,7 @@ import {
   Zap,
   ArrowLeft
 } from 'lucide-react'
-import { api, fmtSlot, rupees, STATUS_FLOW, STATUS_LABEL, type Status } from '../../lib/api'
+import { api, fmtSlot, PAYMENT_LABEL, rupees, STATUS_FLOW, STATUS_LABEL, type Status } from '../../lib/api'
 import { useAction, useAsync } from '../../lib/useAsync'
 import { ErrorText, Loading, Badge } from '../../components/ui'
 import { PhotoStrip } from '../../components/Photos'
@@ -243,6 +243,13 @@ export default function OrderDetail() {
           </div>
         ))}
 
+        {Number(o.discount_amount) > 0 && (
+          <div className="bill-row" style={{ color: 'var(--green-dark)', fontWeight: 600 }}>
+            <span>Promo {o.promo_code}</span>
+            <span>− {rupees(o.discount_amount)}</span>
+          </div>
+        )}
+
         <div className="bill-row" style={{ color: 'var(--text-muted)' }}>
           <span>Estimated Initial Amount</span>
           <span>{rupees(o.estimated_amount)}</span>
@@ -262,13 +269,20 @@ export default function OrderDetail() {
           </span>
         </div>
 
+        {Number(o.refunded_amount) > 0 && (
+          <div className="bill-row" style={{ color: 'var(--green-dark)', fontWeight: 700 }}>
+            <span>Refunded</span>
+            <span>− {rupees(o.refunded_amount)}</span>
+          </div>
+        )}
+
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.85rem', paddingTop: '0.75rem', borderTop: '1px dashed var(--border)', fontSize: '0.85rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
             {o.payment_method === 'cod' ? <Banknote size={16} /> : <CreditCard size={16} />}
             <span>{o.payment_method === 'cod' ? 'Cash on Delivery' : 'Online Payment'}</span>
           </div>
           <span className={`badge ${o.payment_status === 'paid' ? 'badge-delivered' : 'badge-placed'}`}>
-            {o.payment_status.toUpperCase()}
+            {(PAYMENT_LABEL[o.payment_status] ?? o.payment_status).toUpperCase()}
           </span>
         </div>
 

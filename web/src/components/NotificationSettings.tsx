@@ -38,11 +38,20 @@ export default function NotificationSettings() {
   })
   const act = useAction()
 
-  const set = (key: keyof Prefs, on: boolean) => act.run(async () => {
-    if (key === 'notify_push' && !DEMO) { if (on) await enablePush(); else await disablePush() }
-    const saved = await api.updatePreferences({ [key]: on })
-    setPrefs((p) => ({ ...p, [key]: saved[key] ?? on }))
-  })
+  // Flip instantly for a snappy feel; roll back if enabling push or saving fails.
+  const set = async (key: keyof Prefs, on: boolean) => {
+    const before = prefs[key]
+    setPrefs((p) => ({ ...p, [key]: on }))
+    await act.run(async () => {
+      try {
+        if (key === 'notify_push' && !DEMO) { if (on) await enablePush(); else await disablePush() }
+        await api.updatePreferences({ [key]: on })
+      } catch (e) {
+        setPrefs((p) => ({ ...p, [key]: before }))
+        throw e
+      }
+    })
+  }
 
   const rows: { key: keyof Prefs; label: string; hint: string; disabled?: boolean }[] = [
     { key: 'notify_push', label: 'Browser notifications', hint: DEMO ? 'Not available in demo mode' : pushSupported() ? 'Alerts on this device, even when the app is closed' : 'Not supported in this browser', disabled: DEMO || !pushSupported() },
@@ -55,11 +64,24 @@ export default function NotificationSettings() {
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.6rem' }}>
         <Bell size={16} color="var(--brand)" /><h3 style={{ margin: 0 }}>Notifications</h3>
       </div>
-      {rows.map((r) => (
-        <label key={r.key} className="radio" style={{ alignItems: 'center', justifyContent: 'space-between', opacity: r.disabled ? 0.55 : 1 }}>
-          <span><strong>{r.label}</strong><br /><span className="muted">{r.hint}</span></span>
-          <input type="checkbox" role="switch" aria-label={r.label} checked={prefs[r.key]} disabled={act.busy || r.disabled}
-            onChange={(e) => set(r.key, e.target.checked)} style={{ width: 20, height: 20, margin: 0 }} />
+      {rows.map((r, i) => (
+        <label
+          key={r.key}
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.75rem 0', cursor: r.disabled ? 'not-allowed' : 'pointer', opacity: r.disabled ? 0.55 : 1, borderTop: i === 0 ? 'none' : '1px solid var(--line, #e5e7eb)' }}
+        >
+          <span style={{ minWidth: 0 }}>
+            <strong style={{ display: 'block' }}>{r.label}</strong>
+            <span className="muted" style={{ display: 'block' }}>{r.hint}</span>
+          </span>
+          <input
+            type="checkbox"
+            role="switch"
+            aria-label={r.label}
+            checked={prefs[r.key]}
+            disabled={r.disabled}
+            onChange={(e) => set(r.key, e.target.checked)}
+            style={{ width: 22, height: 22, margin: 0, flexShrink: 0 }}
+          />
         </label>
       ))}
       <ErrorText msg={act.error} />
