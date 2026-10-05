@@ -8,7 +8,8 @@ export type Status =
   | 'placed' | 'pickup_assigned' | 'picked_up' | 'weighed' | 'washing'
   | 'ready' | 'out_for_delivery' | 'delivered' | 'cancelled'
 
-export interface Profile { id: string; phone: string | null; full_name: string | null; role: Role }
+export interface Profile { id: string; phone: string | null; full_name: string | null; role: Role; notify_push?: boolean; notify_whatsapp?: boolean; notify_sms?: boolean }
+export type Prefs = { notify_push: boolean; notify_whatsapp: boolean; notify_sms: boolean }
 export interface Service { id: string; shop_id: string; name: string; unit: 'kg' | 'piece'; price: number; turnaround_hours: number; is_active: boolean }
 export interface Shop { emoji?: string; tint?: string; id: string; name: string; description: string | null; address: string | null; city: string; rating: number | null; is_active?: boolean; owner_id?: string | null; services?: Service[] }
 export interface Address { lat?: number | null; lng?: number | null; id: string; label: string | null; line1: string; line2: string | null; city: string; pincode: string }
@@ -63,6 +64,10 @@ const patch = <T>(path: string, json: unknown) => request<T>(path, { method: 'PA
 
 export const api = {
   me: () => request<Profile>('/me'),
+  updatePreferences: (p: Partial<Prefs>) => patch<Profile>('/me/preferences', p),
+  vapidKey: () => request<{ public_key: string }>('/push/vapid-key'),
+  pushSubscribe: (sub: PushSubscriptionJSON) => post('/push/subscribe', sub),
+  pushUnsubscribe: (endpoint: string) => post<void>('/push/unsubscribe', { endpoint }),
   updateMe: (full_name: string) => patch<Profile>('/me', { full_name }),
 
   shops: () => request<Shop[]>('/shops'),

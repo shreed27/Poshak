@@ -12,6 +12,14 @@ class Settings(BaseSettings):
     razorpay_key_id: str = ""
     razorpay_key_secret: str = ""
     razorpay_webhook_secret: str = ""
+    # Notification channels (each is optional; a channel with missing config is skipped)
+    twilio_account_sid: str = ""
+    twilio_auth_token: str = ""
+    twilio_sms_from: str = ""          # e.g. +1415...
+    twilio_whatsapp_from: str = ""     # e.g. whatsapp:+14155238886
+    vapid_public_key: str = ""
+    vapid_private_key: str = ""
+    vapid_subject: str = "mailto:admin@example.com"
     cors_origins: str = "http://localhost:5173"
 
     @property

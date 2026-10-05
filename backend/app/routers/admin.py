@@ -155,7 +155,7 @@ def refund_order(
                 raise
             raise HTTPException(502, "Payment provider error, the refund was not issued")
     refund = db.table("refunds").insert(row).execute().data[0]
-    notify(db, order["customer_id"], "Refund initiated", f"\u20b9{amount} will be returned to you.", order_id)
+    notify(db, order["customer_id"], "Refund initiated", f"\u20b9{amount} will be returned to you.", order_id, external=True)
     return refund
 
 

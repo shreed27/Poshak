@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
-from app.routers import admin, health, me, notifications, orders, partner, payments, promos, shop_dashboard, shops
+from app.routers import admin, health, me, notifications, orders, partner, payments, promos, push, shop_dashboard, shops
 
 app = FastAPI(title="Poshak API")
 
@@ -16,5 +16,5 @@ app.add_middleware(
 
 app.include_router(health.router)
 app.include_router(shops.router)
-for r in (me, orders, partner, shop_dashboard, payments, promos, notifications, admin):
+for r in (me, orders, partner, shop_dashboard, payments, promos, push, notifications, admin):
     app.include_router(r.router)

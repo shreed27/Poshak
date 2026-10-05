@@ -24,6 +24,23 @@ def update_me(body: ProfileUpdate, user: CurrentUser = Depends(get_current_user)
     return rows[0]
 
 
+class PreferencesIn(BaseModel):
+    notify_push: bool | None = None
+    notify_whatsapp: bool | None = None
+    notify_sms: bool | None = None
+
+
+@router.patch("/me/preferences")
+def update_preferences(body: PreferencesIn, user: CurrentUser = Depends(get_current_user), db: Client = Depends(get_db)):
+    changes = body.model_dump(exclude_none=True)
+    if not changes:
+        raise HTTPException(422, "Nothing to update")
+    rows = db.table("profiles").update(changes).eq("id", user.id).execute().data
+    if not rows:
+        raise HTTPException(404, "Profile not found")
+    return rows[0]
+
+
 class AddressIn(BaseModel):
     label: str | None = None
     line1: str

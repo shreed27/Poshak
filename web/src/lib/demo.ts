@@ -36,7 +36,7 @@ export const setDemoRole = (r: Role | null) => {
 export const resetDemo = () => { try { localStorage.removeItem(DB_KEY) } catch { /* ignore */ } }
 
 type Rec = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
-interface DB { partners: Record<string, Rec>; promos: Rec[]; shops: Rec[]; services: Rec[]; addresses: Rec[]; orders: Rec[]; events: Rec[]; notifications: Rec[]; seq: number }
+interface DB { prefs: Record<string, Rec>; partners: Record<string, Rec>; promos: Rec[]; shops: Rec[]; services: Rec[]; addresses: Rec[]; orders: Rec[]; events: Rec[]; notifications: Rec[]; seq: number }
 
 const sv = (id: string, shop_id: string, name: string, unit: 'kg' | 'piece', price: number, turnaround_hours: number): Rec =>
   ({ id, shop_id, name, unit, price, turnaround_hours, is_active: true })
@@ -47,6 +47,7 @@ function seed(): DB {
   return {
     seq: 100,
     partners: {},
+    prefs: {},
     promos: [
       { code: 'WELCOME20', description: '20% off your first order (up to ₹100)', kind: 'percent', value: 20, max_discount: 100, min_order: 100, first_order_only: true, usage_limit: null, per_user_limit: 1, is_active: true },
       { code: 'FLAT50', description: '₹50 off orders above ₹300', kind: 'flat', value: 50, max_discount: null, min_order: 300, first_order_only: false, usage_limit: null, per_user_limit: 5, is_active: true },
@@ -113,7 +114,7 @@ function seed(): DB {
 }
 
 function load(): DB {
-  try { const raw = localStorage.getItem(DB_KEY); if (raw) { const d = JSON.parse(raw); d.promos ??= seed().promos; d.partners ??= {}; return d } } catch { /* ignore */ }
+  try { const raw = localStorage.getItem(DB_KEY); if (raw) { const d = JSON.parse(raw); d.promos ??= seed().promos; d.partners ??= {}; d.prefs ??= {}; return d } } catch { /* ignore */ }
   return seed()
 }
 const save = (db: DB) => { try { localStorage.setItem(DB_KEY, JSON.stringify(db)) } catch { /* ignore */ } }
@@ -177,7 +178,8 @@ export function demoRequest(method: string, path: string, body: Rec | undefined,
   const out = (v: unknown) => { save(db); return v }
   let m: RegExpMatchArray | null
 
-  if (path === '/me' && method === 'GET') return { id: me.id, phone: me.phone, full_name: me.full_name, role }
+  if (path === '/me' && method === 'GET') return { id: me.id, phone: me.phone, full_name: me.full_name, role, ...(db.prefs[me.id] ?? {}) }
+  if (path === '/me/preferences') { db.prefs[me.id] = { ...(db.prefs[me.id] ?? {}), ...body }; return out({ id: me.id, phone: me.phone, full_name: me.full_name, role, ...db.prefs[me.id] }) }
   if (path === '/shops') return db.shops.map((s) => ({ ...s, services: db.services.filter((v) => v.shop_id === s.id && v.is_active) }))
   if ((m = path.match(/^\/shops\/([^/]+)\/services$/))) return db.services.filter((s) => s.shop_id === m![1] && s.is_active)
 

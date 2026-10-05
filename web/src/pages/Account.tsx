@@ -2,6 +2,7 @@ import { useNavigate } from 'react-router-dom'
 import { Phone, LogOut, Sparkles } from 'lucide-react'
 import { useAuth } from '../lib/AuthContext'
 import { DEMO } from '../lib/demo'
+import NotificationSettings from '../components/NotificationSettings'
 
 export default function Account() {
   const { profile, signOut } = useAuth()
@@ -62,6 +63,8 @@ export default function Account() {
           </p>
         </div>
       )}
+
+      <NotificationSettings />
 
       {/* Sign Out Button */}
       <button

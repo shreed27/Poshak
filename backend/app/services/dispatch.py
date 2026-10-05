@@ -95,7 +95,7 @@ def auto_assign(db: Client, order: dict) -> dict | None:
     if not claimed:
         return None
     updated = apply_status(db, claimed[0], OrderStatus.PICKUP_ASSIGNED, None)
-    notify(db, cand.partner_id, "New pickup assigned", "A nearby pickup was assigned to you.", order["id"])
+    notify(db, cand.partner_id, "New pickup assigned", "A nearby pickup was assigned to you.", order["id"], external=True)
     return updated
 
 
