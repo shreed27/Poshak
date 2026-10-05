@@ -129,7 +129,7 @@ class FakeDB:
         self.tables: dict[str, list[dict]] = {}
         self.defaults = {
             "orders": {"payment_status": "pending", "partner_id": None, "final_amount": None, "weight_kg": None,
-                       "rating": None, "review": None, "refunded_amount": 0, "discount_amount": 0, "promo_code": None},
+                       "rating": None, "review": None, "refunded_amount": 0, "discount_amount": 0, "promo_code": None, "assigned_by": None, "declined_by": []},
             "services": {"is_active": True},
             "shops": {"is_active": True},
             "notifications": {"read_at": None},

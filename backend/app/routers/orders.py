@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -6,6 +7,7 @@ from supabase import Client
 from app.auth import CurrentUser, get_current_user
 from app.db import get_db
 from app.schemas.orders import OrderCreate, OrderStatus, RatingIn
+from app.services.dispatch import auto_assign, partner_tracking
 from app.services.notify import notify
 from app.services.orders import apply_status, get_order_or_404
 from app.services.photos import attach_photo_urls, validate_photo_paths
@@ -58,7 +60,11 @@ def create_order(body: OrderCreate, user: CurrentUser = Depends(get_current_user
         db.table("order_photos").insert([{"order_id": order["id"], "path": p} for p in photo_paths]).execute()
     db.table("order_events").insert({"order_id": order["id"], "status": "placed", "actor_id": user.id}).execute()
     notify(db, user.id, "Order placed", "We're finding a pickup partner.", order["id"])
-    return order
+    try:
+        auto_assign(db, order)
+    except Exception:  # dispatch is best-effort; the order stays open for partners to accept
+        logging.getLogger("poshak.dispatch").exception("auto-assign failed for order %s", order["id"])
+    return get_order_or_404(db, order["id"])
 
 
 @router.get("")
@@ -80,7 +86,9 @@ def get_order(order_id: str, user: CurrentUser = Depends(get_current_user), db: 
     if user.role == "customer" and order["customer_id"] != user.id:
         raise HTTPException(404, "Order not found")
     order["order_events"].sort(key=lambda e: e["created_at"])
-    return attach_photo_urls(db, [order])[0]
+    order = attach_photo_urls(db, [order])[0]
+    order["partner_tracking"] = partner_tracking(db, order)
+    return order
 
 
 @router.post("/{order_id}/cancel")

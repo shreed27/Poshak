@@ -8,6 +8,13 @@ export const DEMO = import.meta.env.VITE_DEMO === 'true' || !url || url.includes
 const ROLE_KEY = 'poshak-demo-role'
 const DB_KEY = 'poshak-demo-db-v1'
 
+const km = (a: number, b: number, c: number, d: number) => {
+  const r = 6371, rad = (x: number) => (x * Math.PI) / 180
+  const h = Math.sin(rad(c - a) / 2) ** 2 + Math.cos(rad(a)) * Math.cos(rad(c)) * Math.sin(rad(d - b) / 2) ** 2
+  return 2 * r * Math.asin(Math.sqrt(h))
+}
+const FRESH_MS = 10 * 60 * 1000
+
 const discountFor = (p: Rec, subtotal: number) => {
   const d = p.kind === 'percent' ? Math.min((subtotal * p.value) / 100, p.max_discount ?? Infinity) : p.value
   return Math.round(Math.max(0, Math.min(d, subtotal)) * 100) / 100
@@ -29,7 +36,7 @@ export const setDemoRole = (r: Role | null) => {
 export const resetDemo = () => { try { localStorage.removeItem(DB_KEY) } catch { /* ignore */ } }
 
 type Rec = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
-interface DB { promos: Rec[]; shops: Rec[]; services: Rec[]; addresses: Rec[]; orders: Rec[]; events: Rec[]; notifications: Rec[]; seq: number }
+interface DB { partners: Record<string, Rec>; promos: Rec[]; shops: Rec[]; services: Rec[]; addresses: Rec[]; orders: Rec[]; events: Rec[]; notifications: Rec[]; seq: number }
 
 const sv = (id: string, shop_id: string, name: string, unit: 'kg' | 'piece', price: number, turnaround_hours: number): Rec =>
   ({ id, shop_id, name, unit, price, turnaround_hours, is_active: true })
@@ -39,6 +46,7 @@ function seed(): DB {
     ({ id, name, description, address: `${area}, Bengaluru`, city: 'Bengaluru', rating, is_active: true, owner_id, emoji, tint })
   return {
     seq: 100,
+    partners: {},
     promos: [
       { code: 'WELCOME20', description: '20% off your first order (up to ₹100)', kind: 'percent', value: 20, max_discount: 100, min_order: 100, first_order_only: true, usage_limit: null, per_user_limit: 1, is_active: true },
       { code: 'FLAT50', description: '₹50 off orders above ₹300', kind: 'flat', value: 50, max_discount: null, min_order: 300, first_order_only: false, usage_limit: null, per_user_limit: 5, is_active: true },
@@ -105,7 +113,7 @@ function seed(): DB {
 }
 
 function load(): DB {
-  try { const raw = localStorage.getItem(DB_KEY); if (raw) { const d = JSON.parse(raw); d.promos ??= seed().promos; return d } } catch { /* ignore */ }
+  try { const raw = localStorage.getItem(DB_KEY); if (raw) { const d = JSON.parse(raw); d.promos ??= seed().promos; d.partners ??= {}; return d } } catch { /* ignore */ }
   return seed()
 }
 const save = (db: DB) => { try { localStorage.setItem(DB_KEY, JSON.stringify(db)) } catch { /* ignore */ } }
@@ -140,7 +148,14 @@ export function demoRequest(method: string, path: string, body: Rec | undefined,
     ...o, shops: db.shops.find((s) => s.id === o.shop_id), addresses: db.addresses.find((a) => a.id === o.address_id),
     order_items: o.items.map((i: Rec, n: number) => ({ ...i, id: `${o.id}-${n}`, services: db.services.find((s) => s.id === i.service_id) })),
     order_events: db.events.filter((e) => e.order_id === o.id),
+    partner_tracking: tracking(o),
   })
+  const tracking = (o: Rec) => {
+    const st = o.partner_id && db.partners[o.partner_id], a = db.addresses.find((x) => x.id === o.address_id)
+    if (!['pickup_assigned', 'out_for_delivery'].includes(o.status) || !st || a?.lat == null || st.lat == null || Date.now() - Date.parse(st.updated_at) > FRESH_MS) return null
+    const d = km(a.lat, a.lng, st.lat, st.lng)
+    return { name: 'Ravi', distance_km: Math.round(d * 10) / 10, eta_minutes: Math.max(1, Math.ceil((d / 20) * 60)), heading: o.status === 'pickup_assigned' ? 'pickup' : 'delivery', updated_at: st.updated_at }
+  }
   const move = (o: Rec, status: string, extra: Rec = {}) => {
     if (!FLOW[o.status].includes(status)) fail(`Cannot move from ${o.status} to ${status}`)
     Object.assign(o, extra, { status })
@@ -148,6 +163,16 @@ export function demoRequest(method: string, path: string, body: Rec | undefined,
     db.events.push({ id: uid(), order_id: o.id, status, created_at: now() })
     const n = STATUS_NOTE[status]; if (n) note(o.customer_id, n[0], n[1], o.id)
     return o
+  }
+  const activeJobs = (pid: string) => db.orders.filter((o) => o.partner_id === pid && !['delivered', 'cancelled'].includes(o.status)).length
+  const autoAssign = (o: Rec) => {
+    const a = db.addresses.find((x) => x.id === o.address_id)
+    const st = db.partners.p1
+    if (!st?.is_online || st.lat == null || a?.lat == null || Date.now() - Date.parse(st.updated_at) > FRESH_MS) return
+    if ((o.declined_by ?? []).includes('p1') || activeJobs('p1') >= 3 || km(a.lat, a.lng, st.lat, st.lng) > 15) return
+    o.partner_id = 'p1'; o.assigned_by = 'auto'
+    move(o, 'pickup_assigned')
+    note('p1', 'New pickup assigned', 'A nearby pickup was assigned to you.', o.id)
   }
   const out = (v: unknown) => { save(db); return v }
   let m: RegExpMatchArray | null
@@ -189,9 +214,11 @@ export function demoRequest(method: string, path: string, body: Rec | undefined,
       refunded_amount: 0,
       order_photos: ((b.photo_paths ?? []) as string[]).map((url) => ({ id: uid(), url })),
     }
+    o.declined_by = []
     db.orders.push(o); db.events.push({ id: uid(), order_id: o.id, status: 'placed', created_at: o.created_at })
     note(me.id, 'Order placed', "We're finding a pickup partner.", o.id)
-    return out(o)
+    autoAssign(o)
+    return out(view(o))
   }
   if (path === '/orders') return db.orders.filter((o) => o.customer_id === me.id).map(view).reverse()
   if ((m = path.match(/^\/orders\/([^/]+)$/))) return view(find(db.orders, m[1], 'Order'))
@@ -208,9 +235,32 @@ export function demoRequest(method: string, path: string, body: Rec | undefined,
   }
   if (path === '/notifications/read-all') { db.notifications.filter((n) => n.user_id === me.id).forEach((n) => (n.read_at = now())); return out(undefined) }
 
+  if (path === '/partner/status' && method === 'GET') return db.partners[me.id] ?? { is_online: false, lat: null, lng: null, updated_at: null }
+  if (path === '/partner/status') {
+    const st = { ...(db.partners[me.id] ?? { lat: null, lng: null }), is_online: !!body!.online }
+    if (body!.lat != null) Object.assign(st, { lat: body!.lat, lng: body!.lng, updated_at: now() })
+    db.partners[me.id] = st
+    let assigned = 0
+    if (st.is_online && me.id === 'p1') for (const o of db.orders.filter((x) => x.status === 'placed' && !x.partner_id)) { autoAssign(o); if (o.partner_id) assigned++ }
+    return out({ ...st, assigned_now: assigned })
+  }
+  if (path === '/partner/location') {
+    const st = db.partners[me.id] ?? { is_online: false }
+    db.partners[me.id] = { ...st, lat: body!.lat, lng: body!.lng, updated_at: now() }
+    return out(undefined)
+  }
+  if ((m = path.match(/^\/partner\/orders\/([^/]+)\/release$/))) {
+    const o = find(db.orders, m[1], 'Order')
+    if (o.partner_id !== me.id) fail('This order is not assigned to you')
+    if (o.status !== 'pickup_assigned') fail('You can only release an order before picking it up')
+    o.partner_id = null; o.assigned_by = null; o.status = 'placed'; o.declined_by = [...(o.declined_by ?? []), me.id]
+    db.events.push({ id: uid(), order_id: o.id, status: 'placed', created_at: now() })
+    note(o.customer_id, 'Finding you a new partner', 'Your previous partner could not make it.', o.id)
+    return out(o)
+  }
   if (path === '/partner/available') return db.orders.filter((o) => o.status === 'placed' && !o.partner_id).map(view)
   if (path === '/partner/mine') return db.orders.filter((o) => o.partner_id === me.id && !['delivered', 'cancelled'].includes(o.status)).map(view)
-  if ((m = path.match(/^\/partner\/orders\/([^/]+)\/accept$/))) { const o = find(db.orders, m[1], 'Order'); if (o.partner_id) fail('Another partner just took this order'); o.partner_id = me.id; return out(move(o, 'pickup_assigned')) }
+  if ((m = path.match(/^\/partner\/orders\/([^/]+)\/accept$/))) { const o = find(db.orders, m[1], 'Order'); if (o.partner_id) fail('Another partner just took this order'); o.partner_id = me.id; o.assigned_by = 'partner'; return out(move(o, 'pickup_assigned')) }
   if ((m = path.match(/^\/partner\/orders\/([^/]+)\/weigh$/))) {
     const o = find(db.orders, m[1], 'Order'); if (o.status !== 'picked_up') fail('Mark the order as picked up before weighing')
     const kg = Number(body!.weight_kg)
@@ -247,7 +297,7 @@ export function demoRequest(method: string, path: string, body: Rec | undefined,
     note(o.customer_id, 'Refund initiated', `₹${amt} will be returned to you.`, o.id)
     return out({ id: uid(), order_id: o.id, amount: amt, status: 'manual' })
   }
-  if ((m = path.match(/^\/admin\/orders\/([^/]+)\/assign$/))) { const o = find(db.orders, m[1], 'Order'); o.partner_id = body!.partner_id; return out(move(o, 'pickup_assigned')) }
+  if ((m = path.match(/^\/admin\/orders\/([^/]+)\/assign$/))) { const o = find(db.orders, m[1], 'Order'); o.partner_id = body!.partner_id; o.assigned_by = 'admin'; return out(move(o, 'pickup_assigned')) }
   if (path.match(/^\/admin\/users\/[^/]+\/role$/)) return profiles()[0]
 
   return fail(`Demo mode: ${method} ${path} is not available`)

@@ -11,7 +11,7 @@ export type Status =
 export interface Profile { id: string; phone: string | null; full_name: string | null; role: Role }
 export interface Service { id: string; shop_id: string; name: string; unit: 'kg' | 'piece'; price: number; turnaround_hours: number; is_active: boolean }
 export interface Shop { emoji?: string; tint?: string; id: string; name: string; description: string | null; address: string | null; city: string; rating: number | null; is_active?: boolean; owner_id?: string | null; services?: Service[] }
-export interface Address { id: string; label: string | null; line1: string; line2: string | null; city: string; pincode: string }
+export interface Address { lat?: number | null; lng?: number | null; id: string; label: string | null; line1: string; line2: string | null; city: string; pincode: string }
 export interface OrderItem { id: string; service_id: string; quantity: number; unit_price: number; services?: { name: string; unit: string } }
 export interface OrderEvent { id: string; status: Status; created_at: string }
 export interface Order {
@@ -22,12 +22,15 @@ export interface Order {
   rating: number | null; review: string | null
   customer_id: string; partner_id: string | null; shop_id: string; address_id: string
   order_photos?: { id: string; url: string }[]
+  assigned_by?: string | null
+  partner_tracking?: { name: string; distance_km: number; eta_minutes: number; heading: 'pickup' | 'delivery'; updated_at: string } | null
   shops?: { name: string; address?: string | null; emoji?: string; tint?: string }
   addresses?: Address
   order_items?: OrderItem[]
   order_events?: OrderEvent[]
 }
 export interface Notification { id: string; title: string; body: string | null; read_at: string | null; created_at: string; order_id: string | null }
+export interface PartnerStatus { is_online: boolean; lat: number | null; lng: number | null; updated_at: string | null; assigned_now?: number }
 export interface Promo { code: string; description: string | null; kind: 'percent' | 'flat'; value: number; max_discount: number | null; min_order: number; first_order_only: boolean; usage_limit: number | null; per_user_limit: number; is_active: boolean; redemptions?: number }
 export interface Stats { orders: number; by_status: Record<string, number>; revenue: number; users_by_role: Record<string, number> }
 
@@ -83,6 +86,10 @@ export const api = {
 
   partnerAvailable: () => request<Order[]>('/partner/available'),
   partnerMine: () => request<Order[]>('/partner/mine'),
+  partnerMyStatus: () => request<PartnerStatus>('/partner/status'),
+  partnerSetStatus: (online: boolean, lat?: number, lng?: number) => post<PartnerStatus>('/partner/status', { online, lat, lng }),
+  partnerLocation: (lat: number, lng: number) => post<void>('/partner/location', { lat, lng }),
+  partnerRelease: (id: string) => post<Order>(`/partner/orders/${id}/release`),
   partnerAccept: (id: string) => post<Order>(`/partner/orders/${id}/accept`),
   partnerWeigh: (id: string, weight_kg: number) => post<Order>(`/partner/orders/${id}/weigh`, { weight_kg }),
   partnerStatus: (id: string, status: Status) => post<Order>(`/partner/orders/${id}/status`, { status }),

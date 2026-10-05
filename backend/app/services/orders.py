@@ -12,7 +12,7 @@ def get_order_or_404(db: Client, order_id: str) -> dict:
     return rows[0]
 
 
-def apply_status(db: Client, order: dict, new: OrderStatus, actor_id: str, extra: dict | None = None) -> dict:
+def apply_status(db: Client, order: dict, new: OrderStatus, actor_id: str | None, extra: dict | None = None) -> dict:
     """Validate the transition, persist it, log an event and notify the customer."""
     current = OrderStatus(order["status"])
     if not can_transition(current, new):

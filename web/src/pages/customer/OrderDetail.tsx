@@ -144,6 +144,16 @@ export default function OrderDetail() {
 
       <ErrorText msg={error} />
 
+      {o.partner_tracking && (
+        <section className="card" style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+          <div style={{ fontSize: '1.8rem' }}>🛵</div>
+          <div>
+            <strong>{o.partner_tracking.name} is {o.partner_tracking.distance_km} km away</strong>
+            <div className="muted">About {o.partner_tracking.eta_minutes} min to {o.partner_tracking.heading === 'pickup' ? 'reach you for pickup' : 'deliver to you'}</div>
+          </div>
+        </section>
+      )}
+
       {/* Live Tracking Stepper */}
       <section className="card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>

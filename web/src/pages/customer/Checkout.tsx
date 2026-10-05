@@ -19,6 +19,7 @@ import { ErrorText, Loading } from '../../components/ui'
 import { PhotoPicker, type Pending } from '../../components/Photos'
 import { uploadOrderPhotos } from '../../lib/photos'
 import { useAuth } from '../../lib/AuthContext'
+import { DEMO } from '../../lib/demo'
 
 interface CartItem {
   service_id: string
@@ -88,9 +89,13 @@ export default function Checkout() {
   const applyPromo = useAction()
   const [showAddressForm, setShowAddressForm] = useState(false)
   const [form, setForm] = useState(blank)
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null)
+  const [locMsg, setLocMsg] = useState('')
   const slots = useMemo(() => slotOptions(), [])
   const addAction = useAction(() => {
     setForm(blank)
+    setCoords(null)
+    setLocMsg('')
     setShowAddressForm(false)
     addrs.reload()
   })
@@ -303,6 +308,24 @@ export default function Checkout() {
                 />
               </div>
 
+              <button
+                type="button"
+                style={{ width: '100%', marginBottom: '0.65rem' }}
+                onClick={() => {
+                  setLocMsg('Getting your location…')
+                  if (DEMO) { setCoords({ lat: 12.9716, lng: 77.5946 }); setLocMsg('Location saved ✓'); return }
+                  if (!navigator.geolocation) { setLocMsg('Location is not supported on this device'); return }
+                  navigator.geolocation.getCurrentPosition(
+                    (p) => { setCoords({ lat: p.coords.latitude, lng: p.coords.longitude }); setLocMsg('Location saved ✓') },
+                    () => setLocMsg('Could not get your location. You can still save the address without it.'),
+                    { enableHighAccuracy: true, timeout: 8000 }
+                  )
+                }}
+              >
+                📍 {coords ? 'Update my location' : 'Use my current location'}
+              </button>
+              {locMsg && <p className="muted" style={{ marginTop: '-0.3rem' }}>{locMsg}{!coords ? '' : ' Helps us assign the nearest partner.'}</p>}
+
               <div style={{ display: 'flex', gap: '0.65rem', marginTop: '0.25rem' }}>
                 <button
                   type="button"
@@ -311,7 +334,7 @@ export default function Checkout() {
                   disabled={addAction.busy || !form.line1 || !form.city || form.pincode.length !== 6}
                   onClick={() =>
                     addAction.run(() =>
-                      api.addAddress({ ...form, line2: form.line2 || null })
+                      api.addAddress({ ...form, line2: form.line2 || null, lat: coords?.lat ?? null, lng: coords?.lng ?? null })
                     )
                   }
                 >

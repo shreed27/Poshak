@@ -12,6 +12,7 @@ import { api, fmtSlot, rupees, type Order, type Status } from '../../lib/api'
 import { useAction, useAsync } from '../../lib/useAsync'
 import { Badge, Empty, ErrorText, Loading } from '../../components/ui'
 import { PhotoStrip } from '../../components/Photos'
+import PartnerAvailability from '../../components/PartnerAvailability'
 
 const NEXT: Partial<Record<Status, { to: Status; label: string }>> = {
   pickup_assigned: { to: 'picked_up', label: 'Confirm Picked Up from Customer' },
@@ -31,7 +32,10 @@ function MyOrder({ o, onDone }: { o: Order; onDone: () => void }) {
           <span className="muted" style={{ fontSize: '0.78rem', fontWeight: 600 }}>ORDER #{o.id.slice(-6).toUpperCase()}</span>
           <h3 style={{ margin: '0.15rem 0 0' }}>{o.shops?.name}</h3>
         </div>
-        <Badge status={o.status} />
+        <div style={{ textAlign: 'right' }}>
+          <Badge status={o.status} />
+          {o.assigned_by === 'auto' && <div className="muted" style={{ fontSize: '0.72rem', marginTop: 4 }}>Auto-assigned</div>}
+        </div>
       </div>
 
       <div style={{ background: 'var(--surface-subtle)', padding: '0.85rem', borderRadius: 'var(--radius-md)', marginBottom: '0.85rem', fontSize: '0.85rem' }}>
@@ -99,6 +103,13 @@ function MyOrder({ o, onDone }: { o: Order; onDone: () => void }) {
         </button>
       )}
 
+      {o.status === 'pickup_assigned' && (
+        <button type="button" className="danger wide" disabled={act.busy} style={{ marginTop: '0.5rem' }}
+          onClick={() => act.run(() => api.partnerRelease(o.id))}>
+          Can&apos;t make it? Release this pickup
+        </button>
+      )}
+
       {['weighed', 'washing'].includes(o.status) && (
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: '0.5rem' }}>
           <CheckCircle2 size={15} color="var(--green)" />
@@ -136,6 +147,8 @@ export default function PartnerHome() {
           <span className="muted" style={{ fontSize: '0.85rem' }}>Active pickups and delivery tasks</span>
         </div>
       </div>
+
+      <PartnerAvailability onChange={refresh} />
 
       <h2 style={{ fontSize: '1.2rem', marginBottom: '0.75rem' }}>
         Active Assignments ({mine.data?.length ?? 0})

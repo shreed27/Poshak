@@ -107,7 +107,7 @@ def assign_partner(order_id: str, body: AssignIn, user: CurrentUser = Depends(ad
     p = db.table("profiles").select("role").eq("id", body.partner_id).execute().data
     if not p or p[0]["role"] != "partner":
         raise HTTPException(422, "That user is not a partner")
-    db.table("orders").update({"partner_id": body.partner_id}).eq("id", order_id).execute()
+    db.table("orders").update({"partner_id": body.partner_id, "assigned_by": "admin"}).eq("id", order_id).execute()
     order["partner_id"] = body.partner_id
     return apply_status(db, order, OrderStatus.PICKUP_ASSIGNED, user.id)
 
